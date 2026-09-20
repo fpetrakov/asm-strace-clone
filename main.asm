@@ -28,15 +28,18 @@ _start:
     cmp rcx, 2
     jl .no_argument
 
-    mov rdi, stdout
     mov rsi, [rsp+16]
-    mov rdx, 4
-    mov rax, sys_write
-    syscall
 
-    mov rdi, exit_success
-    mov rax, sys_exit
-    syscall
+    .find_arg_end:
+        mov cl, byte [rsi+rdx]
+        test cl, cl
+        jz .end
+        inc rdx
+        jmp .find_arg_end
+
+    .end:
+    call write_out
+    call exit_ok
 
     .no_argument:
         mov rsi, err_no_arg
@@ -44,12 +47,24 @@ _start:
         call write_err
         call exit_err
 
+write_out:
+    mov rdi, stdout
+    mov rax, sys_write
+    syscall
+    ret
+
 write_err:
     mov rdi, stderr
     mov rax, sys_write
     syscall
+    ret
 
 exit_err:
     mov rdi, exit_failure
+    mov rax, sys_exit
+    syscall
+
+exit_ok:
+    mov rdi, exit_success
     mov rax, sys_exit
     syscall
