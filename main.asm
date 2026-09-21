@@ -1,6 +1,7 @@
 default rel
-
 extern split_path
+extern find_executable
+global _start
 
 %define sys_fork 57
 %define sys_ptrace 101
@@ -31,37 +32,44 @@ section .robata
     ERRMSG err_no_arg, "Error: must have PROG [ARGS] or -p PID"
     ERRMSG err_ptrace, "Error: ptrace"
     ERRMSG err_execve, "Error: execve"
+    ERRMSG err_exec_not_found, "Error: specified executable not found"
 
 section .text
-global main
-
-main:
-    lea rdi, [rel path]
-    mov rcx, [rsp]
-    lea rsi, [rsp + rcx*8 + 16] ; rsi = &envp[0]
-    call split_path
-
-    mov rcx, [rsp]
-    cmp rcx, 2
+_start:
+    mov rdi, [rsp]
+    cmp rdi, 2
     jl .no_argument
 
-    mov rsi, [rsp+16]
+    mov rdi, [rsp]
+    lea rdi, [rsp + rdi*8 + 16] ; rsi = &envp[0]
+    call split_path
+    test rax, rax
+    jz .path_not_found
 
-    .find_arg_end:
-        mov cl, byte [rsi+rdx]
-        test cl, cl
-        jz .parent_work
-        inc rdx
-        jmp .find_arg_end
+    mov rsi, [rsp+16]
+    push rax
+    push rcx
+
+    lea rdi, [rel path]
+    .copy_first_arg:
+        cmp byte [rsi], 0
+        movsb
+        jne .copy_first_arg
+
+    pop rsi
+    pop rdi
+    lea rdx, [rel path]
+    call find_executable
+
+    test rax, rax
+    jz .exec_not_found
 
     .parent_work:
         mov rax, sys_fork
         syscall
 
-
         test rax, rax
         jz .child_work
-        call find_command
         call exit_ok
 
     .child_work:
@@ -75,10 +83,8 @@ main:
         test rax, rax
         jnz .ptrace_err
 
-        call find_command
-
         mov rdi, [rsp+16]
-        lea rsi, [rel command]
+        lea rsi, [rel path]
         xor rdx, rdx
         mov rax, sys_execve
         syscall
@@ -103,6 +109,18 @@ main:
     .no_argument:
         mov rsi, err_no_arg
         mov rdx, err_no_arg_len
+        call write_err
+        call exit_err
+
+    .path_not_found:
+        mov rsi, err_path_not_found
+        mov rdx, err_path_not_found_len
+        call write_err
+        call exit_err
+
+    .exec_not_found:
+        mov rsi, err_exec_not_found
+        mov rdx, err_exec_not_found_len
         call write_err
         call exit_err
 
